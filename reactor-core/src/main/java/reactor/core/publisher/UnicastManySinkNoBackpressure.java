@@ -108,10 +108,8 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 
 	@Override
 	public void cancel() {
-		switch (STATE.getAndSet(this, State.CANCELLED)) {
-			case SUBSCRIBED:
-				actual = null;
-				break;
+		if (STATE.getAndSet(this, State.CANCELLED) == State.SUBSCRIBED) {
+			actual = null;
 		}
 	}
 
