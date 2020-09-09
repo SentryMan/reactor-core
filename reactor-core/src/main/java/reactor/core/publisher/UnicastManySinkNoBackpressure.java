@@ -175,31 +175,29 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 	@Override
 	public Emission tryEmitError(Throwable t) {
 		Objects.requireNonNull(t, "t");
-		switch (this.state) {
-			case INITIAL:
-				if (STATE.compareAndSet(this, State.INITIAL, State.TERMINATED_BEFORE_SUBSCRIPTION)) {
-					this.error = t;
-					return Emission.OK;
-				}
-				else {
-					return tryEmitError(t);
-				}
-			case SUBSCRIBED:
-				if (STATE.compareAndSet(this, State.SUBSCRIBED, State.TERMINATED)) {
-					actual.onError(t);
-					actual = null;
-					return Emission.OK;
-				}
-				else { //recurse
-					return tryEmitError(t);
-				}
-			case TERMINATED:
-			case TERMINATED_BEFORE_SUBSCRIPTION:
-				return Emission.FAIL_TERMINATED;
-			case CANCELLED:
-				return Emission.FAIL_CANCELLED;
-			default:
-				throw new IllegalStateException();
+		for(;;) {
+			switch (this.state) {
+				case INITIAL:
+					if (STATE.compareAndSet(this, State.INITIAL, State.TERMINATED_BEFORE_SUBSCRIPTION)) {
+						this.error = t;
+						return Emission.OK;
+					}
+					continue;
+				case SUBSCRIBED:
+					if (STATE.compareAndSet(this, State.SUBSCRIBED, State.TERMINATED)) {
+						actual.onError(t);
+						actual = null;
+						return Emission.OK;
+					}
+					continue;
+				case TERMINATED:
+				case TERMINATED_BEFORE_SUBSCRIPTION:
+					return Emission.FAIL_TERMINATED;
+				case CANCELLED:
+					return Emission.FAIL_CANCELLED;
+				default:
+					throw new IllegalStateException();
+			}
 		}
 	}
 
@@ -212,32 +210,28 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 
 	@Override
 	public Emission tryEmitComplete() {
-		switch (state) {
-			case INITIAL:
-				if (STATE.compareAndSet(this, State.INITIAL, State.TERMINATED_BEFORE_SUBSCRIPTION)) {
-					return Emission.OK;
-				}
-				else {
-					//recurse
-					return tryEmitComplete();
-				}
-			case SUBSCRIBED:
-				if (STATE.compareAndSet(this, State.SUBSCRIBED, State.TERMINATED)) {
-					actual.onComplete();
-					actual = null;
-					return Emission.OK;
-				}
-				else {
-					// recurse
-					return tryEmitComplete();
-				}
-			case TERMINATED:
-			case TERMINATED_BEFORE_SUBSCRIPTION:
-				return Emission.FAIL_TERMINATED;
-			case CANCELLED:
-				return Emission.FAIL_CANCELLED;
-			default:
-				throw new IllegalStateException();
+		for (;;) { //for the benefit of retrying INITIAL and SUBSCRIBED
+			switch (state) {
+				case INITIAL:
+					if (STATE.compareAndSet(this, State.INITIAL, State.TERMINATED_BEFORE_SUBSCRIPTION)) {
+						return Emission.OK;
+					}
+					continue;
+				case SUBSCRIBED:
+					if (STATE.compareAndSet(this, State.SUBSCRIBED, State.TERMINATED)) {
+						actual.onComplete();
+						actual = null;
+						return Emission.OK;
+					}
+					continue;
+				case TERMINATED:
+				case TERMINATED_BEFORE_SUBSCRIPTION:
+					return Emission.FAIL_TERMINATED;
+				case CANCELLED:
+					return Emission.FAIL_CANCELLED;
+				default:
+					throw new IllegalStateException();
+			}
 		}
 	}
 
