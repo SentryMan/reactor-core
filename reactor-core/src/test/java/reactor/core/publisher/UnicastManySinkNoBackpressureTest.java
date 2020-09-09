@@ -15,6 +15,8 @@
  */
 package reactor.core.publisher;
 
+import java.time.Duration;
+
 import org.junit.jupiter.api.Test;
 
 import reactor.core.Exceptions;
@@ -69,13 +71,20 @@ class UnicastManySinkNoBackpressureTest {
 	}
 
 	@Test
-	void beforeSubscriberEmitNextPropagatesBackpressureError() {
+	void beforeSubscriberEmitNextIsIgnoredKeepsSinkOpen() {
 		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
 
 		sink.emitNext("hi");
 
 		StepVerifier.create(sink.asFlux())
-		            .verifyErrorMatches(Exceptions::isOverflow);
+		            .expectSubscription()
+		            .expectNoEvent(Duration.ofMillis(500))
+		            .then(() -> {
+		            	sink.emitNext("second");
+		            	sink.emitComplete();
+		            })
+		            .expectNext("second")
+		            .verifyComplete();
 	}
 
 }

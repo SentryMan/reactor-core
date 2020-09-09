@@ -893,21 +893,17 @@ public class EmitterProcessorTest {
 	}
 
 	@Test
-	public void emitNextWithNoSubscriberNoCapacityTriggersOnError() {
+	public void emitNextWithNoSubscriberNoCapacityKeepsSinkOpenWithBuffer() {
 		EmitterProcessor<Integer> emitterProcessor = EmitterProcessor.create(1, false);
 		//fill the buffer
 		assertThat(emitterProcessor.tryEmitNext(1)).as("filling buffer").isEqualTo(Sinks.Emission.OK);
 		//test proper
+		//this is "discarded" but no hook can be invoked, so effectively dropped on the floor
 		emitterProcessor.emitNext(2);
-		//note emitError triggered by emitNext above switches state to done, clearing the buffer
 
 		StepVerifier.create(emitterProcessor)
-		            //the buffer has been emptied by the error
-		            //.expectNext(1)
-		            .expectErrorSatisfies(e -> assertThat(e)
-				            .isInstanceOf(IllegalStateException.class)
-				            .matches(Exceptions::isOverflow)
-				            .hasMessage("Backpressure overflow during Sinks.Many#emitNext"))
+		            .expectNext(1)
+		            .expectTimeout(Duration.ofSeconds(1))
 		            .verify();
 	}
 }

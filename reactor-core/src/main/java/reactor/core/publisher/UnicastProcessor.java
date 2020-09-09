@@ -291,6 +291,17 @@ public final class UnicastProcessor<T> extends FluxProcessor<T, T>
 	public void emitNext(T value) {
 		switch (tryEmitNext(value)) {
 			case FAIL_ZERO_SUBSCRIBER:
+				if (onOverflow != null) {
+					try {
+						onOverflow.accept(value);
+					}
+					catch (Throwable e) {
+						Exceptions.throwIfFatal(e);
+						emitError(e);
+					}
+				}
+				//otherwise not really any possibility of discarding here. the sink is kept open, though
+				break;
 			case FAIL_OVERFLOW:
 				Context ctx = currentContext();
 				IllegalStateException overflow = Exceptions.failWithOverflow("Backpressure overflow during Sinks.Many#emitNext");

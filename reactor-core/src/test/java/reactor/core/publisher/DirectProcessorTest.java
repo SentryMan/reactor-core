@@ -15,6 +15,8 @@
  */
 package reactor.core.publisher;
 
+import java.time.Duration;
+
 import org.junit.Assert;
 import org.junit.Test;
 import org.reactivestreams.Subscriber;
@@ -314,16 +316,18 @@ public class DirectProcessorTest {
 	}
 
 	@Test
-	public void emitNextWithNoSubscriberTriggersOnError() {
+	public void emitNextWithNoSubscriberJustDiscardsWithoutTerminatingTheSink() {
 		DirectProcessor<Integer> directProcessor = DirectProcessor.create();
 		directProcessor.emitNext(1);
 
 		StepVerifier.create(directProcessor)
-		            .expectErrorSatisfies(e -> assertThat(e)
-				            .isInstanceOf(IllegalStateException.class)
-				            .matches(Exceptions::isOverflow)
-				            .hasMessage("Backpressure overflow during Sinks.Many#emitNext"))
-		            .verify();
+		            .expectSubscription()
+		            .expectNoEvent(Duration.ofSeconds(1))
+		            .then(() -> directProcessor.emitNext(2))
+		            .then(directProcessor::emitComplete)
+		            .expectNext(2)
+		            .expectComplete()
+		            .verify(Duration.ofSeconds(5));
 	}
 
 }

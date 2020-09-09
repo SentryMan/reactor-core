@@ -15,19 +15,23 @@
  */
 package reactor.core.publisher;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import org.junit.Test;
 
 import reactor.core.Disposable;
+import reactor.core.Disposables;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
 import reactor.test.MemoryUtils;
@@ -310,19 +314,40 @@ public class UnicastProcessorTest {
 	}
 
 	@Test
-	public void emitNextWithNoSubscriberAndBoundedQueueTriggersOnError() {
+	public void emitNextWithNoSubscriberAndBoundedQueueIgnoresValueAndKeepsSinkOpen() {
 		UnicastProcessor<Integer> unicastProcessor = UnicastProcessor.create(Queues.<Integer>one().get());
 		//fill the buffer
 		unicastProcessor.tryEmitNext(1);
-		//test proper
+		//this "overflows" but keeps the sink open. since there's no subscriber, there's no Context so no real discarding
 		unicastProcessor.emitNext(2);
 
+		//let's verify we get the buffer's content
 		StepVerifier.create(unicastProcessor)
 		            .expectNext(1) //from the buffer
-		            .expectErrorSatisfies(e -> assertThat(e)
-				            .isInstanceOf(IllegalStateException.class)
-				            .matches(Exceptions::isOverflow)
-				            .hasMessage("Backpressure overflow during Sinks.Many#emitNext"))
-		            .verify();
+		            .expectNoEvent(Duration.ofMillis(500))
+		            .then(unicastProcessor::emitComplete)
+		            .verifyComplete();
+	}
+
+	@Test //TODO that onOverflow API isn't exposed via Sinks. But maybe it should be generalized?
+	public void emitNextWithNoSubscriberAndBoundedQueueAndHandlerHandlesValueAndKeepsSinkOpen() {
+		Disposable sinkDisposed = Disposables.single();
+		List<Integer> discarded = new CopyOnWriteArrayList<>();
+		UnicastProcessor<Integer> unicastProcessor = UnicastProcessor.create(Queues.<Integer>one().get(),
+				discarded::add, sinkDisposed);
+		//fill the buffer
+		unicastProcessor.tryEmitNext(1);
+		//this "overflows" but keeps the sink open
+		unicastProcessor.emitNext(2);
+
+		assertThat(discarded).containsExactly(2);
+		assertThat(sinkDisposed.isDisposed()).as("sinkDisposed").isFalse();
+
+		unicastProcessor.emitComplete();
+
+		//let's verify we get the buffer's content
+		StepVerifier.create(unicastProcessor)
+		            .expectNext(1) //from the buffer
+		            .verifyComplete();
 	}
 }

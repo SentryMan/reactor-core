@@ -519,6 +519,7 @@ public final class ReplayProcessor<T> extends FluxProcessor<T, T>
 				Operators.onNextDroppedMulticast(value, subscribers);
 				break;
 			case OK:
+			case FAIL_ZERO_SUBSCRIBER: //cannot happen in ReplayProcessor
 				break;
 		}
 	}

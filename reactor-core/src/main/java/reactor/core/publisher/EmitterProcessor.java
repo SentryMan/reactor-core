@@ -270,7 +270,10 @@ public final class EmitterProcessor<T> extends FluxProcessor<T, T> implements Si
 	@Override
 	public void emitNext(T value) {
 		switch(tryEmitNext(value)) {
-			case FAIL_ZERO_SUBSCRIBER: //this only happens if the subscriber[] is EMPTY, and there's no buffering capacity
+			case FAIL_ZERO_SUBSCRIBER:
+				//this case only happens if the subscriber[] is EMPTY AND there's no buffering capacity.
+				//effectively NO-OP cause there's no subscriber, so no context :(
+				break;
 			case FAIL_OVERFLOW:
 				Operators.onDiscard(value, currentContext());
 				//the emitError will onErrorDropped if already terminated
