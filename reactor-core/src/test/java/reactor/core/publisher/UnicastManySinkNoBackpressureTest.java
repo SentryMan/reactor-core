@@ -16,6 +16,8 @@
 package reactor.core.publisher;
 
 import org.junit.jupiter.api.Test;
+
+import reactor.core.Exceptions;
 import reactor.core.publisher.Sinks.Emission;
 import reactor.test.StepVerifier;
 
@@ -65,4 +67,80 @@ class UnicastManySinkNoBackpressureTest {
 
 		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_CANCELLED);
 	}
+
+	@Test
+	void completed() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+		sink.asFlux().subscribe();
+		sink.emitComplete();
+
+		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_TERMINATED);
+	}
+
+	@Test
+	void errored() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+		sink.asFlux().subscribe(v -> {}, e -> {});
+		sink.emitError(new IllegalArgumentException("boom"));
+
+		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_TERMINATED);
+	}
+
+	@Test
+	void completedBeforeSubscription() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		sink.tryEmitComplete();
+
+		sink.asFlux()
+		    .as(StepVerifier::create)
+		    .verifyComplete();
+
+		sink.asFlux()
+		    .as(StepVerifier::create)
+		    .verifyErrorSatisfies(e -> assertThat(e).hasMessage("Unicast Sinks.Many allows only a single Subscriber"));
+	}
+
+	@Test
+	void erroredBeforeSubscription() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		sink.tryEmitError(new IllegalArgumentException("boom"));
+
+		sink.asFlux()
+		    .as(StepVerifier::create)
+		    .verifyErrorMessage("boom");
+
+		sink.asFlux()
+		    .as(StepVerifier::create)
+		    .verifyErrorSatisfies(e -> assertThat(e).hasMessage("Unicast Sinks.Many allows only a single Subscriber"));
+	}
+
+	@Test
+	void terminateEarlyThenTryComplete() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		assertThat(sink.tryEmitComplete()).as("early termination").isEqualTo(Emission.OK);
+
+		assertThat(sink.tryEmitComplete()).as("post termination").isEqualTo(Emission.FAIL_TERMINATED);
+	}
+
+	@Test
+	void terminateEarlyThenTryError() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		assertThat(sink.tryEmitComplete()).as("early termination").isEqualTo(Emission.OK);
+
+		assertThat(sink.tryEmitError(new IllegalArgumentException("boom"))).as("post termination").isEqualTo(Emission.FAIL_TERMINATED);
+	}
+
+	@Test
+	void terminateEarlyThenTryEmitNext() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		assertThat(sink.tryEmitComplete()).as("early termination").isEqualTo(Emission.OK);
+
+		assertThat(sink.tryEmitNext("hi")).as("post termination").isEqualTo(Emission.FAIL_TERMINATED);
+	}
+
 }

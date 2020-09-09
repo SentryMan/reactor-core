@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Sinks.Emission;
@@ -33,6 +34,7 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 
 	enum State {
 		INITIAL,
+		TERMINATED_BEFORE_SUBSCRIPTION,
 		SUBSCRIBED,
 		TERMINATED,
 		CANCELLED,
@@ -54,6 +56,8 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 	static final AtomicLongFieldUpdater<UnicastManySinkNoBackpressure> REQUESTED =
 			AtomicLongFieldUpdater.newUpdater(UnicastManySinkNoBackpressure.class, "requested");
 
+	volatile Throwable error;
+
 	UnicastManySinkNoBackpressure() {
 		STATE.lazySet(this, State.INITIAL);
 	}
@@ -67,13 +71,32 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 	public void subscribe(CoreSubscriber<? super T> actual) {
 		Objects.requireNonNull(actual, "subscribe");
 
-		if (!STATE.compareAndSet(this, State.INITIAL, State.SUBSCRIBED)) {
-			Operators.reportThrowInSubscribe(actual, new IllegalStateException("Unicast Sinks.Many allows only a single Subscriber"));
-			return;
+		for(State s = this.state; /* intentionally no exit condition */ ; s = this.state) {
+			switch(s) {
+				case TERMINATED_BEFORE_SUBSCRIPTION:
+					if (!STATE.compareAndSet(this, s, State.TERMINATED)) {
+						continue;
+					}
+					//detected pre-subscribe termination
+					if (this.error != null) {
+						Operators.error(actual, this.error);
+					}
+					else {
+						Operators.complete(actual);
+					}
+					return;
+				case INITIAL:
+					if (!STATE.compareAndSet(this, s, State.SUBSCRIBED)) {
+						continue;
+					}
+					this.actual = actual;
+					actual.onSubscribe(this);
+					return;
+				default:
+					Operators.reportThrowInSubscribe(actual, new IllegalStateException("Unicast Sinks.Many allows only a single Subscriber"));
+					return;
+			}
 		}
-
-		this.actual = actual;
-		actual.onSubscribe(this);
 	}
 
 	@Override
@@ -134,6 +157,7 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 				Operators.produced(REQUESTED, this, 1);
 				return Emission.OK;
 			case TERMINATED:
+			case TERMINATED_BEFORE_SUBSCRIPTION:
 				return Emission.FAIL_TERMINATED;
 			case CANCELLED:
 				return Emission.FAIL_CANCELLED;
@@ -153,16 +177,26 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 	@Override
 	public Emission tryEmitError(Throwable t) {
 		Objects.requireNonNull(t, "t");
-
-		switch (state) {
+		switch (this.state) {
 			case INITIAL:
-				// TODO different Emission?
-				return Emission.OK;
+				if (STATE.compareAndSet(this, State.INITIAL, State.TERMINATED_BEFORE_SUBSCRIPTION)) {
+					this.error = t;
+					return Emission.OK;
+				}
+				else {
+					return tryEmitError(t);
+				}
 			case SUBSCRIBED:
-				actual.onError(t);
-				actual = null;
-				return Emission.OK;
+				if (STATE.compareAndSet(this, State.SUBSCRIBED, State.TERMINATED)) {
+					actual.onError(t);
+					actual = null;
+					return Emission.OK;
+				}
+				else { //recurse
+					return tryEmitError(t);
+				}
 			case TERMINATED:
+			case TERMINATED_BEFORE_SUBSCRIPTION:
 				return Emission.FAIL_TERMINATED;
 			case CANCELLED:
 				return Emission.FAIL_CANCELLED;
@@ -182,13 +216,25 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 	public Emission tryEmitComplete() {
 		switch (state) {
 			case INITIAL:
-				// TODO different Emission?
-				return Emission.OK;
+				if (STATE.compareAndSet(this, State.INITIAL, State.TERMINATED_BEFORE_SUBSCRIPTION)) {
+					return Emission.OK;
+				}
+				else {
+					//recurse
+					return tryEmitComplete();
+				}
 			case SUBSCRIBED:
-				actual.onComplete();
-				actual = null;
-				return Emission.OK;
+				if (STATE.compareAndSet(this, State.SUBSCRIBED, State.TERMINATED)) {
+					actual.onComplete();
+					actual = null;
+					return Emission.OK;
+				}
+				else {
+					// recurse
+					return tryEmitComplete();
+				}
 			case TERMINATED:
+			case TERMINATED_BEFORE_SUBSCRIPTION:
 				return Emission.FAIL_TERMINATED;
 			case CANCELLED:
 				return Emission.FAIL_CANCELLED;
@@ -196,4 +242,5 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 				throw new IllegalStateException();
 		}
 	}
+
 }
