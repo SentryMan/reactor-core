@@ -101,6 +101,7 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 	@Override
 	public void emitNext(T value) {
 		switch (tryEmitNext(value)) {
+			case FAIL_ZERO_SUBSCRIBER:
 			case FAIL_OVERFLOW:
 				Operators.onDiscard(value, currentContext());
 				//the emitError will onErrorDropped if already terminated
@@ -123,8 +124,7 @@ final class UnicastManySinkNoBackpressure<T> extends Flux<T> implements Sinks.Ma
 
 		switch (state) {
 			case INITIAL:
-				// TODO different Emission?
-				return Emission.FAIL_OVERFLOW;
+				return Emission.FAIL_ZERO_SUBSCRIBER;
 			case SUBSCRIBED:
 				if (requested == 0L) {
 					return Emission.FAIL_OVERFLOW;

@@ -16,6 +16,8 @@
 package reactor.core.publisher;
 
 import org.junit.jupiter.api.Test;
+
+import reactor.core.Exceptions;
 import reactor.core.publisher.Sinks.Emission;
 import reactor.test.StepVerifier;
 
@@ -26,7 +28,7 @@ class UnicastManySinkNoBackpressureTest {
 	@Test
 	void noSubscribers() {
 		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
-		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_OVERFLOW);
+		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_ZERO_SUBSCRIBER);
 	}
 
 	@Test
@@ -65,4 +67,15 @@ class UnicastManySinkNoBackpressureTest {
 
 		assertThat(sink.tryEmitNext("hi")).isEqualTo(Emission.FAIL_CANCELLED);
 	}
+
+	@Test
+	void beforeSubscriberEmitNextPropagatesBackpressureError() {
+		Sinks.Many<Object> sink = UnicastManySinkNoBackpressure.create();
+
+		sink.emitNext("hi");
+
+		StepVerifier.create(sink.asFlux())
+		            .verifyErrorMatches(Exceptions::isOverflow);
+	}
+
 }
